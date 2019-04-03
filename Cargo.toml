@@ -1,0 +1,7 @@
+[package]
+name = "risp"
+version = "0.1.0"
+authors = ["stopachka <stepan.p@gmail.com>"]
+edition = "2018"
+
+[dependencies]
