@@ -5,3 +5,4 @@ authors = ["stopachka <stepan.p@gmail.com>"]
 edition = "2018"
 
 [dependencies]
+regex = "1.1.5"
