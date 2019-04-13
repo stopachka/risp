@@ -1,4 +1,5 @@
 use std::io;
+use std::option::Option;
 
 enum RispAtom {
   Symbol(String),
@@ -10,8 +11,8 @@ enum RispExp {
   Atom(RispAtom),
 }
 
-struct RispErr {
-  reason: &'static str,
+enum RispErr {
+  Reason(String),
 }
 
 /*
@@ -61,10 +62,15 @@ def atom(token: str) -> Atom:
             return Symbol(token)
 */
 
-
-
-fn parse(tokens: Vec<String>) -> Result<RispExp, RispErr> {
-    return Ok(RispExp::Atom(RispAtom::Number(1.0)));
+fn parse(tokens: Vec<String>, pos: usize) -> Result<RispExp, RispErr> {
+  let token = tokens.get(pos)
+    .ok_or(RispErr::Reason("token and pos mismatch".to_string()))?;
+  let to_match = &token[..];
+  match to_match {
+    "(" => Err(RispErr::Reason("implement lists!".to_string())),
+    ")" => Err(RispErr::Reason("unexpected `)`".to_string())),
+    _ => Err(RispErr::Reason("implement atoms!".to_string())),
+  }
 }
 
 fn tokenize(expr: String) -> Vec<String> {
@@ -90,6 +96,7 @@ fn main() {
     println!("risp >");
     let _res = parse(
       tokenize(slurp_expr()),
+      0
     );
   }
 }
