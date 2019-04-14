@@ -1,5 +1,6 @@
 use std::io;
-use std::option::Option;
+use std::num::ParseFloatError;
+
 
 enum RispAtom {
   Symbol(String),
@@ -62,14 +63,32 @@ def atom(token: str) -> Atom:
             return Symbol(token)
 */
 
-fn parse(tokens: Vec<String>, pos: usize) -> Result<RispExp, RispErr> {
-  let token = tokens.get(pos)
-    .ok_or(RispErr::Reason("token and pos mismatch".to_string()))?;
+fn parse(tokens: Vec<String>, pos: usize) -> Result<(RispExp, usize), RispErr> {
+  let token = tokens
+    .get(pos)
+    .ok_or(RispErr::Reason("token and pos mismatch".to_string()))
+    ?;
   let to_match = &token[..];
   match to_match {
     "(" => Err(RispErr::Reason("implement lists!".to_string())),
     ")" => Err(RispErr::Reason("unexpected `)`".to_string())),
-    _ => Err(RispErr::Reason("implement atoms!".to_string())),
+    _ => {
+      let potential_float: Result<f64, ParseFloatError> = to_match.parse();
+      return match potential_float {
+        Ok(v) => Ok(
+          (
+            RispExp::Atom(RispAtom::Number(v)),
+            pos + 1,
+          )
+        ),
+        Err(_) => Ok(
+          (
+            RispExp::Atom(RispAtom::Symbol(to_match.to_string())),
+            pos + 1,
+          )
+        ),
+      }
+    },
   }
 }
 
