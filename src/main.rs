@@ -1,20 +1,57 @@
+use std::collections::HashMap;
 use std::io;
 use std::num::ParseFloatError;
 
+/* 
+  Types
+*/
 
+#[derive(Debug)]
 enum RispAtom {
   Symbol(String),
   Number(f64),
 }
 
+#[derive(Debug)]
 enum RispExp {
   List(Vec<RispExp>),
   Atom(RispAtom),
 }
 
+#[derive(Debug)]
 enum RispErr {
   Reason(String),
 }
+
+struct RispEnv<'a> {
+  data: HashMap<String,  &'a Fn(RispExp) -> RispExp>,
+}
+
+/*
+
+*/
+
+// fn eval(exp: RispExp, env: RispEnv) -> () {
+//   match exp {
+//     RispExp::Atom(atom) => {
+//       match atom {
+//         RispAtom::Symbol(sym) => {
+//           return env
+//             .data
+//             .get(sym)
+//             .ok_or(RispErr::Reason("could not find symbol {}"))
+//           ;
+//         },
+//         RispAtom::Number(num) => {
+//           return num;
+//         }
+//       }
+//     }
+//     RispExp::List(list) => {
+
+//     }
+//   }
+// }
 
 /*
 def eval(x: Exp, env=global_env) -> Exp:
@@ -63,30 +100,49 @@ def atom(token: str) -> Atom:
             return Symbol(token)
 */
 
-fn parse(tokens: Vec<String>, pos: usize) -> Result<(RispExp, usize), RispErr> {
+/* 
+  Eval
+*/
+
+/* 
+  Parse
+*/
+
+fn read_seq(tokens: &Vec<String>, start: usize) -> Result<(RispExp, usize), RispErr> {
+  let mut res: Vec<RispExp> = vec![];
+  let mut next = start;
+  loop {
+    let next_token = tokens.get(next).ok_or(RispErr::Reason("could not find closing `)`".to_string()))?;
+    if next_token == ")" {
+      return Ok((RispExp::List(res), next + 1))
+    }
+    let (exp, new_next) = parse(&tokens, next)?;
+    res.push(exp);
+    next = new_next;
+  }
+}
+
+fn parse_atom(token: String) -> Result<RispExp, RispErr> {
+  let potential_float: Result<f64, ParseFloatError> = token.parse();
+  return match potential_float {
+    Ok(v) => Ok(RispExp::Atom(RispAtom::Number(v))),
+    Err(_) => Ok(RispExp::Atom(RispAtom::Symbol(token))),
+  }
+}
+
+fn parse(tokens: &Vec<String>, pos: usize) -> Result<(RispExp, usize), RispErr> {
   let token = tokens
     .get(pos)
     .ok_or(RispErr::Reason("token and pos mismatch".to_string()))
     ?;
   let to_match = &token[..];
   match to_match {
-    "(" => Err(RispErr::Reason("implement lists!".to_string())),
+    "(" => read_seq(tokens, pos + 1),
     ")" => Err(RispErr::Reason("unexpected `)`".to_string())),
     _ => {
-      let potential_float: Result<f64, ParseFloatError> = to_match.parse();
-      return match potential_float {
-        Ok(v) => Ok(
-          (
-            RispExp::Atom(RispAtom::Number(v)),
-            pos + 1,
-          )
-        ),
-        Err(_) => Ok(
-          (
-            RispExp::Atom(RispAtom::Symbol(to_match.to_string())),
-            pos + 1,
-          )
-        ),
+      return match parse_atom(to_match.to_string()) {
+        Ok(v) => Ok((v, pos + 1)),
+        Err(e) => Err(e)
       }
     },
   }
@@ -96,10 +152,15 @@ fn tokenize(expr: String) -> Vec<String> {
   return expr
     .replace("(", " ( ")
     .replace(")", " ) ")
+    .trim()
     .split(" ")
     .map(|x| x.to_string())
     .collect();
 }
+
+/*
+  REPL
+*/
 
 fn slurp_expr() -> String {
   let mut expr = String::new();
@@ -113,9 +174,10 @@ fn slurp_expr() -> String {
 fn main() {
   loop {
     println!("risp >");
-    let _res = parse(
-      tokenize(slurp_expr()),
+    let res = parse(
+      &tokenize(slurp_expr()),
       0
     );
+    println!("{:?}", res);
   }
 }
