@@ -89,7 +89,11 @@ fn eval(exp: &RispExp, env: &RispEnv) -> Result<RispExp, RispErr> {
     RispExp::Atom(atom) => match atom {
       RispAtom::Symbol(k) => Ok(
         env.data.get(k)
-          .ok_or(RispErr::Reason("unexpected symbol".to_string()))
+          .ok_or(
+            RispErr::Reason(
+              format!("unexpected symbol k='{}'", k)
+            )
+          )
           .unwrap()
           .clone()
       ),
@@ -125,7 +129,7 @@ fn read_seq(tokens: &Vec<String>, start: usize) -> Result<(RispExp, usize), Risp
       .ok_or(RispErr::Reason("could not find closing `)`".to_string()))
       ?;
     if next_token == ")" {
-      return Ok((RispExp::List(res), next + 1))
+      return Ok((RispExp::List(res), next + 1)) // skip `)`, head to the token after
     }
     let (exp, new_next) = parse(&tokens, next)?;
     res.push(exp);
@@ -163,9 +167,9 @@ fn tokenize(expr: String) -> Vec<String> {
   return expr
     .replace("(", " ( ")
     .replace(")", " ) ")
-    .trim()
     .split(" ")
-    .map(|x| x.to_string())
+    .map(|x| x.trim().to_string())
+    .filter(|x| !x.is_empty())
     .collect();
 }
 
@@ -173,23 +177,22 @@ fn tokenize(expr: String) -> Vec<String> {
   Print
 */
 
-fn to_str(exp: &RispExp) -> Result<String, RispErr> {
+fn to_str(exp: &RispExp) -> String {
   match exp {
     RispExp::Atom(a) => {
       return match a {
-        RispAtom::Symbol(s) => Ok(s.clone()),
-        RispAtom::Number(n) => Ok(n.to_string()),
+        RispAtom::Symbol(s) => s.clone(),
+        RispAtom::Number(n) => n.to_string(),
       }
     },
     RispExp::List(list) => {
       let str_items: Vec<String> = list
         .iter()
         .map(|x| to_str(x))
-        .map(Result::unwrap)
         .collect();
-      return Ok(format!("({})", str_items.join(",")));
+      return format!("({})", str_items.join(","));
     },
-    _ => Err(RispErr::Reason("uh oh can't print str".to_string()))
+    RispExp::Func(_) => "Function {}".to_string(),
   }
 }
 
@@ -200,7 +203,7 @@ fn to_str(exp: &RispExp) -> Result<String, RispErr> {
 fn parse_eval_print(expr: String) -> Result<String, RispErr> {
   let (parsed_exp, _) = parse(&tokenize(expr), 0)?;
   let evaled_exp = eval(&parsed_exp, &default_env())?;
-  return to_str(&evaled_exp);
+  return Ok(to_str(&evaled_exp));
 }
 
 fn slurp_expr() -> String {
