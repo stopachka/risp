@@ -6,8 +6,9 @@ use std::num::ParseFloatError;
   Types
 */
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 enum RispAtom {
+  Bool(bool),
   Symbol(String),
   Number(f64),
 }
@@ -38,14 +39,15 @@ fn to_str(exp: &RispExp) -> String {
       return match a {
         RispAtom::Symbol(s) => s.clone(),
         RispAtom::Number(n) => n.to_string(),
+        RispAtom::Bool(b) => b.to_string(),
       }
     },
     RispExp::List(list) => {
-      let str_items: Vec<String> = list
+      let xs: Vec<String> = list
         .iter()
         .map(|x| to_str(x))
         .collect();
-      return format!("({})", str_items.join(","));
+      return format!("({})", xs.join(","));
     },
     RispExp::Func(_) => "Function {}".to_string(),
   }
@@ -57,14 +59,7 @@ fn to_str(exp: &RispExp) -> String {
 
 fn parse_single_float(exp: &RispExp) -> Result<f64, RispErr> {
   match exp {
-    RispExp::Atom(a) => {
-      return match a {
-        RispAtom::Number(num) => Ok(*num),
-        RispAtom::Symbol(sym) => Err(RispErr::Reason(
-          format!("expected number, got symbol='{}'", sym)
-        )),
-      }
-    },
+    RispExp::Atom(RispAtom::Number(num)) => Ok(*num),
     _ => Err(
       RispErr::Reason(
         format!("expected a number, got form='{}'", to_str(exp))
@@ -106,7 +101,6 @@ fn default_env() -> RispEnv {
       }
     )
   );
-
   return RispEnv {data: data}
 }
 
@@ -114,32 +108,64 @@ fn default_env() -> RispEnv {
   Eval
 */
 
+fn eval_if(args_to_eval: &[RispExp], env: &RispEnv) -> Result<RispExp, RispErr> {
+  let test_form = args_to_eval.get(0).ok_or(
+    RispErr::Reason(
+      "expected test form".to_string(),
+    )
+  )?;
+  let test_eval = eval(test_form, env)?;
+  match test_eval {
+    RispExp::Atom(RispAtom::Bool(b)) => {
+      let form_idx = if b { 1 } else { 2 };
+      let res_form = args_to_eval.get(form_idx)
+        .ok_or(RispErr::Reason(
+          format!("expected form idx={}", form_idx)
+        ))?;
+      let res_eval = eval(res_form, env);
+      
+      return res_eval;
+    },
+    _ => Err(
+      RispErr::Reason(format!("unexpected test form='{}'", to_str(test_form)))
+    )
+  }
+}
+
+fn eval_built_in_symbol(sym: String, args_to_eval: &[RispExp], env: &RispEnv) -> Result<RispExp, RispErr> {
+  match sym.as_ref() {
+    "if" => eval_if(args_to_eval, env),
+    _ => Err(RispErr::Reason(format!("unknown built-in symbol='{}'", sym))),
+  }
+}
+
 fn eval(exp: &RispExp, env: &RispEnv) -> Result<RispExp, RispErr> {
   match exp {
-    RispExp::Atom(atom) => match atom {
-      RispAtom::Symbol(k) => 
-        env.data.get(k)
-          .ok_or(
-            RispErr::Reason(
-              format!("unexpected symbol k='{}'", k)
-            )
+    RispExp::Atom(RispAtom::Symbol(k)) =>
+      env.data.get(k)
+        .or(Some(exp))
+        .ok_or(
+          RispErr::Reason(
+            format!("unexpected symbol k='{}'", k)
           )
-          .map(|x| x.clone())
-      ,
-      _ => Ok(exp.clone())
-    },
+        )
+        .map(|x| x.clone())
+    ,
+    RispExp::Atom(_a) => Ok(exp.clone()),
     RispExp::List(list) => {
       let first = list
         .get(0)
         .ok_or(RispErr::Reason("expected a non-empty list".to_string()))?;
+      let args_to_eval = &list[1..];
       let first_eval = eval(first, env)?;
       return match first_eval {
+        RispExp::Atom(RispAtom::Symbol(sym)) => eval_built_in_symbol(sym, args_to_eval, env),
         RispExp::Func(f) => {
-          let xs = list[1..]
+          let args_eval = args_to_eval
             .iter()
             .map(|x| eval(x, env))
             .collect::<Result<Vec<RispExp>, RispErr>>()?;
-          return f(&RispExp::List(xs));
+          return f(&RispExp::List(args_eval));
         },
         _ => Err(
           RispErr::Reason(
@@ -177,11 +203,17 @@ fn read_seq(tokens: &Vec<String>, start: usize) -> Result<(RispExp, usize), Risp
   }
 }
 
-fn parse_atom(token: String) -> Result<RispExp, RispErr> {
-  let potential_float: Result<f64, ParseFloatError> = token.parse();
-  return match potential_float {
-    Ok(v) => Ok(RispExp::Atom(RispAtom::Number(v))),
-    Err(_) => Ok(RispExp::Atom(RispAtom::Symbol(token))),
+fn parse_atom(token: &String) -> RispAtom {
+  match token.as_ref() {
+    "true" => RispAtom::Bool(true),
+    "false" => RispAtom::Bool(false),
+    _ => {
+      let potential_float: Result<f64, ParseFloatError> = token.parse();
+      return match potential_float {
+        Ok(v) => RispAtom::Number(v),
+        Err(_) => RispAtom::Symbol(token.clone()),
+      }
+    }
   }
 }
 
@@ -195,12 +227,9 @@ fn parse(tokens: &Vec<String>, pos: usize) -> Result<(RispExp, usize), RispErr> 
   match to_match {
     "(" => read_seq(tokens, pos + 1),
     ")" => Err(RispErr::Reason("unexpected `)`".to_string())),
-    _ => {
-      return match parse_atom(to_match.to_string()) {
-        Ok(v) => Ok((v, pos + 1)),
-        Err(e) => Err(e)
-      }
-    },
+    _ => Ok(
+      (RispExp::Atom(parse_atom(token)), pos + 1)
+    ),
   }
 }
 
