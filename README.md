@@ -1,6 +1,6 @@
 # Risp 
 
-TTry it out! 
+Try it out! 
 
 ```bash
 ./target/release/risp 
