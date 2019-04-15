@@ -28,6 +28,29 @@ struct RispEnv {
   data: HashMap<String, RispExp>,
 }
 
+/*
+  Print
+*/
+
+fn to_str(exp: &RispExp) -> String {
+  match exp {
+    RispExp::Atom(a) => {
+      return match a {
+        RispAtom::Symbol(s) => s.clone(),
+        RispAtom::Number(n) => n.to_string(),
+      }
+    },
+    RispExp::List(list) => {
+      let str_items: Vec<String> = list
+        .iter()
+        .map(|x| to_str(x))
+        .collect();
+      return format!("({})", str_items.join(","));
+    },
+    RispExp::Func(_) => "Function {}".to_string(),
+  }
+}
+
 /* 
   Env
 */
@@ -37,19 +60,26 @@ fn parse_single_float(exp: &RispExp) -> Result<f64, RispErr> {
     RispExp::Atom(a) => {
       return match a {
         RispAtom::Number(num) => Ok(*num),
-        RispAtom::Symbol(_) => Err(RispErr::Reason("expected numb".to_string())),
+        RispAtom::Symbol(sym) => Err(RispErr::Reason(
+          format!("expected number, got symbol='{}'", sym)
+        )),
       }
     },
-    _ => Err(RispErr::Reason("expected a single number".to_string()))
+    _ => Err(
+      RispErr::Reason(
+        format!("expected a number, got form='{}'", to_str(exp))
+      )
+    ),
   }
 }
 
 fn parse_list_of_floats(exp: &RispExp) -> Result<Vec<f64>, RispErr> {
   match exp {
-    RispExp::List(list) => Ok(
-      list.iter().map(|x| parse_single_float(x)).map(Result::unwrap).collect()
-    ),
-    _ => Ok(vec![parse_single_float(exp).unwrap()]),
+    RispExp::List(list) => list
+      .iter()
+      .map(|x| parse_single_float(x))
+      .collect::<Result<Vec<f64>, RispErr>>(),
+    _ => parse_single_float(exp).map(|x| vec![x]),
   }
 }
 
@@ -87,16 +117,15 @@ fn default_env() -> RispEnv {
 fn eval(exp: &RispExp, env: &RispEnv) -> Result<RispExp, RispErr> {
   match exp {
     RispExp::Atom(atom) => match atom {
-      RispAtom::Symbol(k) => Ok(
+      RispAtom::Symbol(k) => 
         env.data.get(k)
           .ok_or(
             RispErr::Reason(
               format!("unexpected symbol k='{}'", k)
             )
           )
-          .unwrap()
-          .clone()
-      ),
+          .map(|x| x.clone())
+      ,
       _ => Ok(exp.clone())
     },
     RispExp::List(list) => {
@@ -104,15 +133,26 @@ fn eval(exp: &RispExp, env: &RispEnv) -> Result<RispExp, RispErr> {
         .get(0)
         .ok_or(RispErr::Reason("expected a non-empty list".to_string()))?;
       let first_eval = eval(first, env)?;
-      let rest_eval: Vec<RispExp> = 
-        list[1..].iter().map(|x| eval(x, env)).map(Result::unwrap).collect();
-      let args_exp = RispExp::List(rest_eval);
       return match first_eval {
-        RispExp::Func(f) => f(&args_exp),
-        _ => Err(RispErr::Reason("uh oh unexpected first arg".to_string())),
+        RispExp::Func(f) => {
+          let xs = list[1..]
+            .iter()
+            .map(|x| eval(x, env))
+            .collect::<Result<Vec<RispExp>, RispErr>>()?;
+          return f(&RispExp::List(xs));
+        },
+        _ => Err(
+          RispErr::Reason(
+            format!("first form must be a function, but got form='{}'", to_str(&first_eval))
+          )
+        ),
       }
     },
-    RispExp::Func(_) => Err(RispErr::Reason("unexpected form".to_string())),
+    RispExp::Func(_) => Err(
+      RispErr::Reason(
+        format!("unexpected form='{}'", to_str(exp))
+      )
+    ),
   }
 }
 
@@ -148,8 +188,9 @@ fn parse_atom(token: String) -> Result<RispExp, RispErr> {
 fn parse(tokens: &Vec<String>, pos: usize) -> Result<(RispExp, usize), RispErr> {
   let token = tokens
     .get(pos)
-    .ok_or(RispErr::Reason("token and pos mismatch".to_string()))
-    ?;
+    .ok_or(
+      RispErr::Reason(format!("could not get token for pos='{}'", pos))
+    )?;
   let to_match = &token[..];
   match to_match {
     "(" => read_seq(tokens, pos + 1),
@@ -171,29 +212,6 @@ fn tokenize(expr: String) -> Vec<String> {
     .map(|x| x.trim().to_string())
     .filter(|x| !x.is_empty())
     .collect();
-}
-
-/*
-  Print
-*/
-
-fn to_str(exp: &RispExp) -> String {
-  match exp {
-    RispExp::Atom(a) => {
-      return match a {
-        RispAtom::Symbol(s) => s.clone(),
-        RispAtom::Number(n) => n.to_string(),
-      }
-    },
-    RispExp::List(list) => {
-      let str_items: Vec<String> = list
-        .iter()
-        .map(|x| to_str(x))
-        .collect();
-      return format!("({})", str_items.join(","));
-    },
-    RispExp::Func(_) => "Function {}".to_string(),
-  }
 }
 
 /*
@@ -219,7 +237,11 @@ fn main() {
   loop {
     println!("risp >");
     let expr = slurp_expr();
-    let res = parse_eval_print(expr).unwrap();
-    println!("//=> {}", res);
+    match parse_eval_print(expr) {
+      Ok(res) => println!("// 🔥 => {}", res),
+      Err(e) => match e {
+        RispErr::Reason(msg) => println!("// 🙀 => {}", msg),
+      },
+    }
   }
 }
