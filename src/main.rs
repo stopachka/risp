@@ -6,16 +6,17 @@ use std::num::ParseFloatError;
   Types
 */
 
-#[derive(Debug)]
+#[derive(Clone)]
 enum RispAtom {
   Symbol(String),
   Number(f64),
 }
 
-#[derive(Debug)]
+#[derive(Clone)]
 enum RispExp {
   List(Vec<RispExp>),
   Atom(RispAtom),
+  Func(fn(&RispExp) -> Result<RispExp, RispErr>),
 }
 
 #[derive(Debug)]
@@ -23,86 +24,87 @@ enum RispErr {
   Reason(String),
 }
 
-struct RispEnv<'a> {
-  data: HashMap<String,  &'a Fn(RispExp) -> RispExp>,
+struct RispEnv {
+  data: HashMap<String, RispExp>,
 }
-
-/*
-
-*/
-
-// fn eval(exp: RispExp, env: RispEnv) -> () {
-//   match exp {
-//     RispExp::Atom(atom) => {
-//       match atom {
-//         RispAtom::Symbol(sym) => {
-//           return env
-//             .data
-//             .get(sym)
-//             .ok_or(RispErr::Reason("could not find symbol {}"))
-//           ;
-//         },
-//         RispAtom::Number(num) => {
-//           return num;
-//         }
-//       }
-//     }
-//     RispExp::List(list) => {
-
-//     }
-//   }
-// }
-
-/*
-def eval(x: Exp, env=global_env) -> Exp:
-    "Evaluate an expression in an environment."
-    if isinstance(x, Symbol):        # variable reference
-        return env[x]
-    elif isinstance(x, Number):      # constant number
-        return x                
-    elif x[0] == 'if':               # conditional
-        (_, test, conseq, alt) = x
-        exp = (conseq if eval(test, env) else alt)
-        return eval(exp, env)
-    elif x[0] == 'define':           # definition
-        (_, symbol, exp) = x
-        env[symbol] = eval(exp, env)
-    else:                            # procedure call
-        proc = eval(x[0], env)
-        args = [eval(arg, env) for arg in x[1:]]
-        return proc(*args)
-
-def parse(program: str) -> Exp:
-    "Read a Scheme expression from a string."
-    return read_from_tokens(tokenize(program))
-
-def read_from_tokens(tokens: list) -> Exp:
-    "Read an expression from a sequence of tokens."
-    if len(tokens) == 0:
-        raise SyntaxError('unexpected EOF')
-    token = tokens.pop(0)
-    if token == '(':
-        L = []
-        while tokens[0] != ')':
-            L.append(read_from_tokens(tokens))
-        tokens.pop(0) # pop off ')'
-        return L
-    elif token == ')':
-        raise SyntaxError('unexpected )')
-    else:
-        return atom(token)
-def atom(token: str) -> Atom:
-    "Numbers become numbers; every other token is a symbol."
-    try: return int(token)
-    except ValueError:
-        try: return float(token)
-        except ValueError:
-            return Symbol(token)
-*/
 
 /* 
   Eval
 */
+
+fn parse_single_float(x: &RispExp) -> Result<f64, RispErr> {
+  return match x {
+    RispExp::Atom(v) => {
+      return match v {
+        RispAtom::Number(num) => Ok(*num),
+        RispAtom::Symbol(_) => Err(RispErr::Reason("expected numb".to_string())),
+      }
+    },
+    _ => Err(RispErr::Reason("expected a single number".to_string()))
+  }
+}
+
+fn parse_list_of_floats(x: &RispExp) -> Result<Vec<f64>, RispErr> {
+  match x {
+    RispExp::List(list) => {
+      let xs = list.iter().map(|x| parse_single_float(x)).map(Result::unwrap).collect();
+      return Ok(xs);
+    },
+    _ => {
+      let x = parse_single_float(x)?;
+      return Ok(vec![x]);
+    }
+  }
+}
+
+fn default_env() -> RispEnv {
+  let mut data: HashMap<String, RispExp> = HashMap::new();
+  data.insert(
+    "+".to_string(), 
+    RispExp::Func(
+      |x: &RispExp| -> Result<RispExp, RispErr> {
+        let sum = parse_list_of_floats(x)?.iter().fold(0.0, |sum, a| sum + a);
+        return Ok(RispExp::Atom(RispAtom::Number(sum)));
+      }
+    )
+  );
+  data.insert(
+    "-".to_string(), 
+    RispExp::Func(
+      |x: &RispExp| -> Result<RispExp, RispErr> {
+        let floats = parse_list_of_floats(x)?;
+        let first = *floats.get(0).ok_or(RispErr::Reason("expected at least one number".to_string()))?;
+        let sum_of_rest = floats[1..].iter().fold(0.0, |sum, a| sum + a);
+
+        return Ok(RispExp::Atom(RispAtom::Number(first - sum_of_rest)));
+      }
+    )
+  );
+  return RispEnv {data: data}
+}
+
+fn eval(exp: &RispExp, env: &RispEnv) -> Result<RispExp, RispErr> {
+  match exp {
+    RispExp::Atom(atom) => match atom {
+      RispAtom::Symbol(k) => match env.data.get(k) {
+        Some(v) => Ok(v.clone()),
+        _ => Err(RispErr::Reason("uh oh unexpected symbol".to_string()))
+      }
+      _ => Ok(exp.clone()),
+    },
+    RispExp::List(list) => {
+      let first = list.get(0).ok_or(RispErr::Reason("uh oh could not get first item".to_string()))?;    
+      let first_res = eval(first, env)?;
+      let evaled_rest: Vec<RispExp> = list[1..].iter().map(|x| eval(x, env).unwrap()).collect();
+      let evaled_exp = RispExp::List(evaled_rest);
+      return match first_res {
+        RispExp::Func(f) => f(&evaled_exp),
+        _ => Err(RispErr::Reason("uh oh unexpected first arg".to_string())),
+      }
+    },
+    RispExp::Func(_) => Err(RispErr::Reason("uh oh unexpected input".to_string())),
+  }
+}
 
 /* 
   Parse
@@ -162,6 +164,32 @@ fn tokenize(expr: String) -> Vec<String> {
   REPL
 */
 
+fn to_str(exp: &RispExp) -> Result<String, RispErr> {
+  match exp {
+    RispExp::Atom(a) => {
+      return match a {
+        RispAtom::Symbol(s) => Ok(s.clone()),
+        RispAtom::Number(n) => Ok(n.to_string()),
+      }
+    },
+    RispExp::List(list) => {
+      let str_items: Vec<String> = list
+        .iter()
+        .map(|x| to_str(x))
+        .map(Result::unwrap)
+        .collect();
+      return Ok(format!("({})", str_items.join(",")));
+    },
+    _ => Err(RispErr::Reason("uh oh can't print str".to_string()))
+  }
+}
+
+fn parse_eval_print(expr: String) -> Result<String, RispErr> {
+  let (parsed_exp, _) = parse(&tokenize(expr), 0)?;
+  let evaled_exp = eval(&parsed_exp, &default_env())?;
+  return to_str(&evaled_exp);
+}
+
 fn slurp_expr() -> String {
   let mut expr = String::new();
   
@@ -174,10 +202,8 @@ fn slurp_expr() -> String {
 fn main() {
   loop {
     println!("risp >");
-    let res = parse(
-      &tokenize(slurp_expr()),
-      0
-    );
-    println!("{:?}", res);
+    let expr = slurp_expr();
+    let res = parse_eval_print(expr).unwrap();
+    println!("//=> {}", res);
   }
 }
