@@ -17,7 +17,7 @@ enum RispAtom {
 enum RispExp {
   List(Vec<RispExp>),
   Atom(RispAtom),
-  Func(fn(&RispExp) -> Result<RispExp, RispErr>),
+  Func(fn(&Vec<RispExp>) -> Result<RispExp, RispErr>),
 }
 
 #[derive(Debug)]
@@ -68,14 +68,11 @@ fn parse_single_float(exp: &RispExp) -> Result<f64, RispErr> {
   }
 }
 
-fn parse_list_of_floats(exp: &RispExp) -> Result<Vec<f64>, RispErr> {
-  match exp {
-    RispExp::List(list) => list
-      .iter()
-      .map(|x| parse_single_float(x))
-      .collect::<Result<Vec<f64>, RispErr>>(),
-    _ => parse_single_float(exp).map(|x| vec![x]),
-  }
+fn parse_list_of_floats(args: &Vec<RispExp>) -> Result<Vec<f64>, RispErr> {
+  return args
+    .iter()
+    .map(|x| parse_single_float(x))
+    .collect::<Result<Vec<f64>, RispErr>>();
 }
 
 fn default_env() -> RispEnv {
@@ -83,8 +80,8 @@ fn default_env() -> RispEnv {
   data.insert(
     "+".to_string(), 
     RispExp::Func(
-      |exp: &RispExp| -> Result<RispExp, RispErr> {
-        let sum = parse_list_of_floats(exp)?.iter().fold(0.0, |sum, a| sum + a);
+      |args: &Vec<RispExp>| -> Result<RispExp, RispErr> {
+        let sum = parse_list_of_floats(args)?.iter().fold(0.0, |sum, a| sum + a);
         return Ok(RispExp::Atom(RispAtom::Number(sum)));
       }
     )
@@ -92,8 +89,8 @@ fn default_env() -> RispEnv {
   data.insert(
     "-".to_string(), 
     RispExp::Func(
-      |exp: &RispExp| -> Result<RispExp, RispErr> {
-        let floats = parse_list_of_floats(exp)?;
+      |args: &Vec<RispExp>| -> Result<RispExp, RispErr> {
+        let floats = parse_list_of_floats(args)?;
         let first = *floats.get(0).ok_or(RispErr::Reason("expected at least one number".to_string()))?;
         let sum_of_rest = floats[1..].iter().fold(0.0, |sum, a| sum + a);
 
@@ -165,7 +162,7 @@ fn eval(exp: &RispExp, env: &RispEnv) -> Result<RispExp, RispErr> {
             .iter()
             .map(|x| eval(x, env))
             .collect::<Result<Vec<RispExp>, RispErr>>()?;
-          return f(&RispExp::List(args_eval));
+          return f(&args_eval);
         },
         _ => Err(
           RispErr::Reason(
