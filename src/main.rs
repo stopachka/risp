@@ -133,6 +133,27 @@ fn default_env() -> RispEnv {
       }
     )
   );
+  data.insert(
+    ">".to_string(), 
+    RispExp::Func(
+      |args: &Vec<RispExp>| -> Result<RispExp, RispErr> {
+        let floats = parse_list_of_floats(args)?;
+        let first = floats.first().ok_or(RispErr::Reason("expected at least one number".to_string()))?;
+        let rest = &floats[1..];
+        fn f (prev: &f64, xs: &[f64]) -> bool {
+          match xs.first() {
+            Some(x) => prev > x && f(x, &xs[1..]),
+            None => true,
+          }
+        };
+        return Ok(
+          RispExp::Atom(
+            RispAtom::Bool(f(first, rest))
+          )
+        );
+      }
+    )
+  );
   return RispEnv {data: data}
 }
 
