@@ -29,6 +29,28 @@ struct RispEnv {
   data: HashMap<String, RispExp>,
 }
 
+impl PartialEq for RispAtom {
+  fn eq(&self, other: &RispAtom) -> bool {
+    match (self, other) {
+      (RispAtom::Bool(ref a), RispAtom::Bool(ref b)) => a == b,
+      (RispAtom::Symbol(ref a), RispAtom::Symbol(ref b)) => a == b,
+      (RispAtom::Number(ref a), RispAtom::Number(ref b)) => a == b,
+      _ => false,
+    }
+  }
+}
+
+impl PartialEq for RispExp {
+  fn eq(&self, other: &RispExp) -> bool {
+    match (self, other) {
+      (RispExp::Atom(ref a), RispExp::Atom(ref b)) => a == b,
+      (RispExp::List(ref a), RispExp::List(ref b)) => a == b,
+      (RispExp::Func(ref _a), RispExp::Func(ref _b)) => false,
+      _ => false,
+    }
+  }
+}
+
 /*
   Print
 */
@@ -91,10 +113,23 @@ fn default_env() -> RispEnv {
     RispExp::Func(
       |args: &Vec<RispExp>| -> Result<RispExp, RispErr> {
         let floats = parse_list_of_floats(args)?;
-        let first = *floats.get(0).ok_or(RispErr::Reason("expected at least one number".to_string()))?;
+        let first = *floats.first().ok_or(RispErr::Reason("expected at least one number".to_string()))?;
         let sum_of_rest = floats[1..].iter().fold(0.0, |sum, a| sum + a);
 
         return Ok(RispExp::Atom(RispAtom::Number(first - sum_of_rest)));
+      }
+    )
+  );
+  data.insert(
+    "=".to_string(), 
+    RispExp::Func(
+      |args: &Vec<RispExp>| -> Result<RispExp, RispErr> {
+        let first = args.first().ok_or(RispErr::Reason("expected at least one arg".to_string()))?;
+        return Ok(
+          RispExp::Atom(
+            RispAtom::Bool(args[1..].iter().all(|x| first == x))
+          )
+        );
       }
     )
   );
@@ -105,8 +140,8 @@ fn default_env() -> RispEnv {
   Eval
 */
 
-fn eval_if(args_to_eval: &[RispExp], env: &RispEnv) -> Result<RispExp, RispErr> {
-  let test_form = args_to_eval.get(0).ok_or(
+fn eval_if_args(args_to_eval: &[RispExp], env: &RispEnv) -> Result<RispExp, RispErr> {
+  let test_form = args_to_eval.first().ok_or(
     RispErr::Reason(
       "expected test form".to_string(),
     )
@@ -131,7 +166,7 @@ fn eval_if(args_to_eval: &[RispExp], env: &RispEnv) -> Result<RispExp, RispErr> 
 
 fn eval_built_in_symbol(sym: String, args_to_eval: &[RispExp], env: &RispEnv) -> Result<RispExp, RispErr> {
   match sym.as_ref() {
-    "if" => eval_if(args_to_eval, env),
+    "if" => eval_if_args(args_to_eval, env),
     _ => Err(RispErr::Reason(format!("unknown built-in symbol='{}'", sym))),
   }
 }
@@ -150,23 +185,23 @@ fn eval(exp: &RispExp, env: &RispEnv) -> Result<RispExp, RispErr> {
     ,
     RispExp::Atom(_a) => Ok(exp.clone()),
     RispExp::List(list) => {
-      let first = list
-        .get(0)
+      let first_to_eval = list
+        .first()
         .ok_or(RispErr::Reason("expected a non-empty list".to_string()))?;
       let args_to_eval = &list[1..];
-      let first_eval = eval(first, env)?;
-      return match first_eval {
+      let first = eval(first_to_eval, env)?;
+      return match first {
         RispExp::Atom(RispAtom::Symbol(sym)) => eval_built_in_symbol(sym, args_to_eval, env),
         RispExp::Func(f) => {
-          let args_eval = args_to_eval
+          let args = args_to_eval
             .iter()
             .map(|x| eval(x, env))
             .collect::<Result<Vec<RispExp>, RispErr>>()?;
-          return f(&args_eval);
+          return f(&args);
         },
         _ => Err(
           RispErr::Reason(
-            format!("first form must be a function, but got form='{}'", to_str(&first_eval))
+            format!("first form must be a function, but got form='{}'", to_str(&first))
           )
         ),
       }
