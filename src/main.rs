@@ -97,6 +97,27 @@ fn parse_list_of_floats(args: &Vec<RispExp>) -> Result<Vec<f64>, RispErr> {
     .collect::<Result<Vec<f64>, RispErr>>();
 }
 
+macro_rules! ensure_tonicity {
+  ($check_fn:expr) => {{
+    |args: &Vec<RispExp>| -> Result<RispExp, RispErr> {
+      let floats = parse_list_of_floats(args)?;
+      let first = floats.first().ok_or(RispErr::Reason("expected at least one number".to_string()))?;
+      let rest = &floats[1..];
+      fn f (prev: &f64, xs: &[f64]) -> bool {
+        match xs.first() {
+          Some(x) => $check_fn(prev, x) && f(x, &xs[1..]),
+          None => true,
+        }
+      };
+      return Ok(
+        RispExp::Atom(
+          RispAtom::Bool(f(first, rest))
+        )
+      );
+    }
+  }};
+}
+
 fn default_env() -> RispEnv {
   let mut data: HashMap<String, RispExp> = HashMap::new();
   data.insert(
@@ -122,38 +143,25 @@ fn default_env() -> RispEnv {
   );
   data.insert(
     "=".to_string(), 
-    RispExp::Func(
-      |args: &Vec<RispExp>| -> Result<RispExp, RispErr> {
-        let first = args.first().ok_or(RispErr::Reason("expected at least one arg".to_string()))?;
-        return Ok(
-          RispExp::Atom(
-            RispAtom::Bool(args[1..].iter().all(|x| first == x))
-          )
-        );
-      }
-    )
+    RispExp::Func(ensure_tonicity!(|a, b| a == b))
   );
   data.insert(
     ">".to_string(), 
-    RispExp::Func(
-      |args: &Vec<RispExp>| -> Result<RispExp, RispErr> {
-        let floats = parse_list_of_floats(args)?;
-        let first = floats.first().ok_or(RispErr::Reason("expected at least one number".to_string()))?;
-        let rest = &floats[1..];
-        fn f (prev: &f64, xs: &[f64]) -> bool {
-          match xs.first() {
-            Some(x) => prev > x && f(x, &xs[1..]),
-            None => true,
-          }
-        };
-        return Ok(
-          RispExp::Atom(
-            RispAtom::Bool(f(first, rest))
-          )
-        );
-      }
-    )
+    RispExp::Func(ensure_tonicity!(|a, b| a > b))
   );
+  data.insert(
+    ">=".to_string(), 
+    RispExp::Func(ensure_tonicity!(|a, b| a >= b))
+  );
+  data.insert(
+    "<".to_string(), 
+    RispExp::Func(ensure_tonicity!(|a, b| a < b))
+  );
+  data.insert(
+    "<=".to_string(), 
+    RispExp::Func(ensure_tonicity!(|a, b| a <= b))
+  );
+  
   return RispEnv {data: data}
 }
 
