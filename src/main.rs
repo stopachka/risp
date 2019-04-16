@@ -6,17 +6,12 @@ use std::num::ParseFloatError;
   Types
 */
 
-#[derive(Debug, Clone)]
-enum RispAtom {
+#[derive(Clone)]
+enum RispExp {
   Bool(bool),
   Symbol(String),
   Number(f64),
-}
-
-#[derive(Clone)]
-enum RispExp {
   List(Vec<RispExp>),
-  Atom(RispAtom),
   Func(fn(&Vec<RispExp>) -> Result<RispExp, RispErr>),
 }
 
@@ -29,23 +24,13 @@ struct RispEnv {
   data: HashMap<String, RispExp>,
 }
 
-impl PartialEq for RispAtom {
-  fn eq(&self, other: &RispAtom) -> bool {
-    match (self, other) {
-      (RispAtom::Bool(ref a), RispAtom::Bool(ref b)) => a == b,
-      (RispAtom::Symbol(ref a), RispAtom::Symbol(ref b)) => a == b,
-      (RispAtom::Number(ref a), RispAtom::Number(ref b)) => a == b,
-      _ => false,
-    }
-  }
-}
-
 impl PartialEq for RispExp {
   fn eq(&self, other: &RispExp) -> bool {
     match (self, other) {
-      (RispExp::Atom(ref a), RispExp::Atom(ref b)) => a == b,
+      (RispExp::Bool(ref a), RispExp::Bool(ref b)) => a == b,
+      (RispExp::Symbol(ref a), RispExp::Symbol(ref b)) => a == b,
+      (RispExp::Number(ref a), RispExp::Number(ref b)) => a == b,
       (RispExp::List(ref a), RispExp::List(ref b)) => a == b,
-      (RispExp::Func(ref _a), RispExp::Func(ref _b)) => false,
       _ => false,
     }
   }
@@ -57,13 +42,9 @@ impl PartialEq for RispExp {
 
 fn to_str(exp: &RispExp) -> String {
   match exp {
-    RispExp::Atom(a) => {
-      return match a {
-        RispAtom::Symbol(s) => s.clone(),
-        RispAtom::Number(n) => n.to_string(),
-        RispAtom::Bool(b) => b.to_string(),
-      }
-    },
+    RispExp::Symbol(s) => s.clone(),
+    RispExp::Number(n) => n.to_string(),
+    RispExp::Bool(b) => b.to_string(),
     RispExp::List(list) => {
       let xs: Vec<String> = list
         .iter()
@@ -81,7 +62,7 @@ fn to_str(exp: &RispExp) -> String {
 
 fn parse_single_float(exp: &RispExp) -> Result<f64, RispErr> {
   match exp {
-    RispExp::Atom(RispAtom::Number(num)) => Ok(*num),
+    RispExp::Number(num) => Ok(*num),
     _ => Err(
       RispErr::Reason(
         format!("expected a number, got form='{}'", to_str(exp))
@@ -109,11 +90,7 @@ macro_rules! ensure_tonicity {
           None => true,
         }
       };
-      return Ok(
-        RispExp::Atom(
-          RispAtom::Bool(f(first, rest))
-        )
-      );
+      return Ok(RispExp::Bool(f(first, rest)));
     }
   }};
 }
@@ -125,7 +102,7 @@ fn default_env() -> RispEnv {
     RispExp::Func(
       |args: &Vec<RispExp>| -> Result<RispExp, RispErr> {
         let sum = parse_list_of_floats(args)?.iter().fold(0.0, |sum, a| sum + a);
-        return Ok(RispExp::Atom(RispAtom::Number(sum)));
+        return Ok(RispExp::Number(sum));
       }
     )
   );
@@ -137,7 +114,7 @@ fn default_env() -> RispEnv {
         let first = *floats.first().ok_or(RispErr::Reason("expected at least one number".to_string()))?;
         let sum_of_rest = floats[1..].iter().fold(0.0, |sum, a| sum + a);
 
-        return Ok(RispExp::Atom(RispAtom::Number(first - sum_of_rest)));
+        return Ok(RispExp::Number(first - sum_of_rest));
       }
     )
   );
@@ -177,7 +154,7 @@ fn eval_if_args(args_to_eval: &[RispExp], env: &RispEnv) -> Result<RispExp, Risp
   )?;
   let test_eval = eval(test_form, env)?;
   match test_eval {
-    RispExp::Atom(RispAtom::Bool(b)) => {
+    RispExp::Bool(b) => {
       let form_idx = if b { 1 } else { 2 };
       let res_form = args_to_eval.get(form_idx)
         .ok_or(RispErr::Reason(
@@ -202,7 +179,7 @@ fn eval_built_in_symbol(sym: String, args_to_eval: &[RispExp], env: &RispEnv) ->
 
 fn eval(exp: &RispExp, env: &RispEnv) -> Result<RispExp, RispErr> {
   match exp {
-    RispExp::Atom(RispAtom::Symbol(k)) =>
+    RispExp::Symbol(k) =>
       env.data.get(k)
         .or(Some(exp))
         .ok_or(
@@ -212,7 +189,8 @@ fn eval(exp: &RispExp, env: &RispEnv) -> Result<RispExp, RispErr> {
         )
         .map(|x| x.clone())
     ,
-    RispExp::Atom(_a) => Ok(exp.clone()),
+    RispExp::Bool(_a) => Ok(exp.clone()),
+    RispExp::Number(_a) => Ok(exp.clone()),
     RispExp::List(list) => {
       let first_to_eval = list
         .first()
@@ -220,7 +198,7 @@ fn eval(exp: &RispExp, env: &RispEnv) -> Result<RispExp, RispErr> {
       let args_to_eval = &list[1..];
       let first = eval(first_to_eval, env)?;
       return match first {
-        RispExp::Atom(RispAtom::Symbol(sym)) => eval_built_in_symbol(sym, args_to_eval, env),
+        RispExp::Symbol(sym) => eval_built_in_symbol(sym, args_to_eval, env),
         RispExp::Func(f) => {
           let args = args_to_eval
             .iter()
@@ -264,15 +242,15 @@ fn read_seq(tokens: &Vec<String>, start: usize) -> Result<(RispExp, usize), Risp
   }
 }
 
-fn parse_atom(token: &String) -> RispAtom {
+fn parse_atom(token: &String) -> RispExp {
   match token.as_ref() {
-    "true" => RispAtom::Bool(true),
-    "false" => RispAtom::Bool(false),
+    "true" => RispExp::Bool(true),
+    "false" => RispExp::Bool(false),
     _ => {
       let potential_float: Result<f64, ParseFloatError> = token.parse();
       return match potential_float {
-        Ok(v) => RispAtom::Number(v),
-        Err(_) => RispAtom::Symbol(token.clone()),
+        Ok(v) => RispExp::Number(v),
+        Err(_) => RispExp::Symbol(token.clone()),
       }
     }
   }
@@ -289,7 +267,7 @@ fn parse(tokens: &Vec<String>, pos: usize) -> Result<(RispExp, usize), RispErr> 
     "(" => read_seq(tokens, pos + 1),
     ")" => Err(RispErr::Reason("unexpected `)`".to_string())),
     _ => Ok(
-      (RispExp::Atom(parse_atom(token)), pos + 1)
+      (parse_atom(token), pos + 1)
     ),
   }
 }
