@@ -332,11 +332,11 @@ fn slurp_expr() -> String {
 }
 
 fn main() {
-  let env = default_env();
+  let env = &mut default_env();
   loop {
     println!("risp >");
     let expr = slurp_expr();;
-    match parse_eval_print(expr, &mut env) {
+    match parse_eval_print(expr, env) {
       Ok(res) => println!("// 🔥 => {}", res),
       Err(e) => match e {
         RispErr::Reason(msg) => println!("// 🙀 => {}", msg),
