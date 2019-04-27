@@ -146,7 +146,7 @@ fn default_env() -> RispEnv {
   Eval
 */
 
-fn eval_if_args(arg_forms: &[RispExp], env: &RispEnv) -> Result<RispExp, RispErr> {
+fn eval_if_args(arg_forms: &[RispExp], env: &mut RispEnv) -> Result<RispExp, RispErr> {
   let test_form = arg_forms.first().ok_or(
     RispErr::Reason(
       "expected test form".to_string(),
@@ -170,14 +170,37 @@ fn eval_if_args(arg_forms: &[RispExp], env: &RispEnv) -> Result<RispExp, RispErr
   }
 }
 
-fn eval_built_in_symbol(sym: String, arg_forms: &[RispExp], env: &RispEnv) -> Result<RispExp, RispErr> {
+fn eval_def(arg_forms: &[RispExp], env: &mut RispEnv) -> Result<RispExp, RispErr> {
+  let first_form = arg_forms.first().ok_or(
+    RispErr::Reason(
+      "expected test form".to_string(),
+    )
+  )?;
+  let first_str = match first_form {
+    RispExp::Symbol(s) => Ok(s.clone()),
+    _ => Err(RispErr::Reason(
+      "expected first form to be a symbol".to_string(),
+    ))
+  }?;
+  let second_form = arg_forms.get(1).ok_or(
+    RispErr::Reason(
+      "expected second form".to_string(),
+    )
+  )?; 
+  let second_eval = eval(second_form, env)?;
+  env.data.insert(first_str, second_eval);
+  return Ok(first_form.clone());
+}
+
+fn eval_built_in_symbol(sym: String, arg_forms: &[RispExp], env: &mut RispEnv) -> Result<RispExp, RispErr> {
   match sym.as_ref() {
     "if" => eval_if_args(arg_forms, env),
+    "def" => eval_def(arg_forms, env),
     _ => Err(RispErr::Reason(format!("unknown built-in symbol='{}'", sym))),
   }
 }
 
-fn eval(exp: &RispExp, env: &RispEnv) -> Result<RispExp, RispErr> {
+fn eval(exp: &RispExp, env: &mut RispEnv) -> Result<RispExp, RispErr> {
   match exp {
     RispExp::Symbol(k) =>
       env.data.get(k)
@@ -286,9 +309,9 @@ fn tokenize(expr: String) -> Vec<String> {
   REPL
 */
 
-fn parse_eval_print(expr: String) -> Result<String, RispErr> {
+fn parse_eval_print(expr: String, env: &mut RispEnv) -> Result<String, RispErr> {
   let (parsed_exp, _) = parse(&tokenize(expr), 0)?;
-  let evaled_exp = eval(&parsed_exp, &default_env())?;
+  let evaled_exp = eval(&parsed_exp, env)?;
   return Ok(to_str(&evaled_exp));
 }
 
@@ -302,10 +325,11 @@ fn slurp_expr() -> String {
 }
 
 fn main() {
+  let env = &mut default_env();
   loop {
     println!("risp >");
-    let expr = slurp_expr();
-    match parse_eval_print(expr) {
+    let expr = slurp_expr();;
+    match parse_eval_print(expr, env) {
       Ok(res) => println!("// 🔥 => {}", res),
       Err(e) => match e {
         RispErr::Reason(msg) => println!("// 🙀 => {}", msg),
