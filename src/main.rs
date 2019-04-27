@@ -12,7 +12,7 @@ enum RispExp {
   Symbol(String),
   Number(f64),
   List(Vec<RispExp>),
-  Func(fn(&Vec<RispExp>) -> Result<RispExp, RispErr>),
+  Func(fn(&[RispExp]) -> Result<RispExp, RispErr>),
 }
 
 #[derive(Debug)]
@@ -71,7 +71,7 @@ fn parse_single_float(exp: &RispExp) -> Result<f64, RispErr> {
   }
 }
 
-fn parse_list_of_floats(args: &Vec<RispExp>) -> Result<Vec<f64>, RispErr> {
+fn parse_list_of_floats(args: &[RispExp]) -> Result<Vec<f64>, RispErr> {
   return args
     .iter()
     .map(|x| parse_single_float(x))
@@ -80,7 +80,7 @@ fn parse_list_of_floats(args: &Vec<RispExp>) -> Result<Vec<f64>, RispErr> {
 
 macro_rules! ensure_tonicity {
   ($check_fn:expr) => {{
-    |args: &Vec<RispExp>| -> Result<RispExp, RispErr> {
+    |args: &[RispExp]| -> Result<RispExp, RispErr> {
       let floats = parse_list_of_floats(args)?;
       let first = floats.first().ok_or(RispErr::Reason("expected at least one number".to_string()))?;
       let rest = &floats[1..];
@@ -100,7 +100,7 @@ fn default_env() -> RispEnv {
   data.insert(
     "+".to_string(), 
     RispExp::Func(
-      |args: &Vec<RispExp>| -> Result<RispExp, RispErr> {
+      |args: &[RispExp]| -> Result<RispExp, RispErr> {
         let sum = parse_list_of_floats(args)?.iter().fold(0.0, |sum, a| sum + a);
         return Ok(RispExp::Number(sum));
       }
@@ -109,7 +109,7 @@ fn default_env() -> RispEnv {
   data.insert(
     "-".to_string(), 
     RispExp::Func(
-      |args: &Vec<RispExp>| -> Result<RispExp, RispErr> {
+      |args: &[RispExp]| -> Result<RispExp, RispErr> {
         let floats = parse_list_of_floats(args)?;
         let first = *floats.first().ok_or(RispErr::Reason("expected at least one number".to_string()))?;
         let sum_of_rest = floats[1..].iter().fold(0.0, |sum, a| sum + a);
@@ -225,7 +225,7 @@ fn eval(exp: &RispExp, env: &RispEnv) -> Result<RispExp, RispErr> {
   Parse
 */
 
-fn read_seq(tokens: &Vec<String>, start: usize) -> Result<(RispExp, usize), RispErr> {
+fn read_seq(tokens: &[String], start: usize) -> Result<(RispExp, usize), RispErr> {
   let mut res: Vec<RispExp> = vec![];
   let mut next = start;
   loop {
@@ -250,13 +250,13 @@ fn parse_atom(token: &String) -> RispExp {
       let potential_float: Result<f64, ParseFloatError> = token.parse();
       return match potential_float {
         Ok(v) => RispExp::Number(v),
-        Err(_) => RispExp::Symbol(token.clone()),
+        Err(_) => RispExp::Symbol(token.clone())
       }
     }
   }
 }
 
-fn parse(tokens: &Vec<String>, pos: usize) -> Result<(RispExp, usize), RispErr> {
+fn parse(tokens: &[String], pos: usize) -> Result<(RispExp, usize), RispErr> {
   let token = tokens
     .get(pos)
     .ok_or(
