@@ -173,7 +173,7 @@ fn eval_if_args(arg_forms: &[RispExp], env: &mut RispEnv) -> Result<RispExp, Ris
 fn eval_def(arg_forms: &[RispExp], env: &mut RispEnv) -> Result<RispExp, RispErr> {
   let first_form = arg_forms.first().ok_or(
     RispErr::Reason(
-      "expected test form".to_string(),
+      "expected first form".to_string(),
     )
   )?;
   let first_str = match first_form {
@@ -186,7 +186,14 @@ fn eval_def(arg_forms: &[RispExp], env: &mut RispEnv) -> Result<RispExp, RispErr
     RispErr::Reason(
       "expected second form".to_string(),
     )
-  )?; 
+  )?;
+  if arg_forms.len() > 2 {
+    return Err(
+      RispErr::Reason(
+        "def can only have two forms ".to_string(),
+      )
+    )
+  } 
   let second_eval = eval(second_form, env)?;
   env.data.insert(first_str, second_eval);
   return Ok(first_form.clone());
