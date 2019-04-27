@@ -242,7 +242,7 @@ fn read_seq(tokens: &[String], start: usize) -> Result<(RispExp, usize), RispErr
   }
 }
 
-fn parse_atom(token: &String) -> RispExp {
+fn parse_atom(token: &str) -> RispExp {
   match token.as_ref() {
     "true" => RispExp::Bool(true),
     "false" => RispExp::Bool(false),
@@ -250,7 +250,7 @@ fn parse_atom(token: &String) -> RispExp {
       let potential_float: Result<f64, ParseFloatError> = token.parse();
       return match potential_float {
         Ok(v) => RispExp::Number(v),
-        Err(_) => RispExp::Symbol(token.clone())
+        Err(_) => RispExp::Symbol(token.to_string().clone())
       }
     }
   }
