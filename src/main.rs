@@ -3,10 +3,9 @@ use std::io;
 use std::num::ParseFloatError;
 use std::rc::Rc;
 
-/* 
+/*
   Types
 */
-
 
 #[derive(Clone)]
 enum RispExp {
@@ -16,6 +15,12 @@ enum RispExp {
   List(Vec<RispExp>),
   Func(fn(&[RispExp]) -> Result<RispExp, RispErr>),
   Lambda(RispLambda)
+}
+
+#[derive(Clone)]
+struct RispLambda {
+  params_exp: Rc<RispExp>,
+  body_exp: Rc<RispExp>,
 }
 
 #[derive(Debug)]
@@ -29,67 +34,70 @@ struct RispEnv {
   outer: Option<Rc<RispEnv>>,
 }
 
-#[derive(Clone)]
-struct RispLambda {
-  params_exp: Rc<RispExp>,
-  body_exp: Rc<RispExp>,
+/*
+  Parse
+*/
+
+fn tokenize(expr: String) -> Vec<String> {
+  return expr
+    .replace("(", " ( ")
+    .replace(")", " ) ")
+    .split(" ")
+    .map(|x| x.trim().to_string())
+    .filter(|x| !x.is_empty())
+    .collect();
 }
 
-impl PartialEq for RispExp {
-  fn eq(&self, other: &RispExp) -> bool {
-    match (self, other) {
-      (RispExp::Bool(ref a), RispExp::Bool(ref b)) => a == b,
-      (RispExp::Symbol(ref a), RispExp::Symbol(ref b)) => a == b,
-      (RispExp::Number(ref a), RispExp::Number(ref b)) => a == b,
-      (RispExp::List(ref a), RispExp::List(ref b)) => a == b,
-      _ => false,
+fn parse(tokens: &[String], pos: usize) -> Result<(RispExp, usize), RispErr> {
+  let token = tokens
+    .get(pos)
+    .ok_or(
+      RispErr::Reason(format!("could not get token for pos='{}'", pos))
+    )?;
+  let to_match = &token[..];
+  match to_match {
+    "(" => read_seq(tokens, pos + 1),
+    ")" => Err(RispErr::Reason("unexpected `)`".to_string())),
+    _ => Ok(
+      (parse_atom(token), pos + 1)
+    ),
+  }
+}
+
+fn read_seq(tokens: &[String], start: usize) -> Result<(RispExp, usize), RispErr> {
+  let mut res: Vec<RispExp> = vec![];
+  let mut next = start;
+  loop {
+    let next_token = tokens
+      .get(next)
+      .ok_or(RispErr::Reason("could not find closing `)`".to_string()))
+      ?;
+    if next_token == ")" {
+      return Ok((RispExp::List(res), next + 1)) // skip `)`, head to the token after
+    }
+    let (exp, new_next) = parse(&tokens, next)?;
+    res.push(exp);
+    next = new_next;
+  }
+}
+
+fn parse_atom(token: &str) -> RispExp {
+  match token.as_ref() {
+    "true" => RispExp::Bool(true),
+    "false" => RispExp::Bool(false),
+    _ => {
+      let potential_float: Result<f64, ParseFloatError> = token.parse();
+      return match potential_float {
+        Ok(v) => RispExp::Number(v),
+        Err(_) => RispExp::Symbol(token.to_string().clone())
+      }
     }
   }
 }
 
 /*
-  Print
-*/
-
-fn to_str(exp: &RispExp) -> String {
-  match exp {
-    RispExp::Symbol(s) => s.clone(),
-    RispExp::Number(n) => n.to_string(),
-    RispExp::Bool(b) => b.to_string(),
-    RispExp::List(list) => {
-      let xs: Vec<String> = list
-        .iter()
-        .map(|x| to_str(x))
-        .collect();
-      return format!("({})", xs.join(","));
-    },
-    RispExp::Func(_) => "Function {}".to_string(),
-    RispExp::Lambda(_) => "Lambda {}".to_string(),
-  }
-}
-
-/* 
   Env
 */
-
-fn parse_single_float(exp: &RispExp) -> Result<f64, RispErr> {
-  match exp {
-    RispExp::Number(num) => Ok(*num),
-    _ => Err(
-      RispErr::Reason(
-        format!("expected a number, got form='{}'", to_str(exp))
-      )
-    ),
-  }
-}
-
-fn parse_list_of_floats(args: &[RispExp]) -> Result<Vec<f64>, RispErr> {
-  return args
-    .iter()
-    .map(|x| parse_single_float(x))
-    .collect::<Result<Vec<f64>, RispErr>>();
-}
-
 macro_rules! ensure_tonicity {
   ($check_fn:expr) => {{
     |args: &[RispExp]| -> Result<RispExp, RispErr> {
@@ -154,7 +162,21 @@ fn default_env() -> RispEnv {
   return RispEnv {data: data, outer: None}
 }
 
-/* 
+fn parse_list_of_floats(args: &[RispExp]) -> Result<Vec<f64>, RispErr> {
+  return args
+    .iter()
+    .map(|x| parse_single_float(x))
+    .collect::<Result<Vec<f64>, RispErr>>();
+}
+
+fn parse_single_float(exp: &RispExp) -> Result<f64, RispErr> {
+  match exp {
+    RispExp::Number(num) => Ok(*num),
+    _ => Err(RispErr::Reason("expected a number".to_string())),
+  }
+}
+
+/*
   Eval
 */
 
@@ -182,7 +204,7 @@ fn eval_if_args(arg_forms: &[RispExp], env: &mut RispEnv) -> Result<RispExp, Ris
   }
 }
 
-fn eval_def(arg_forms: &[RispExp], env: &mut RispEnv) -> Result<RispExp, RispErr> {
+fn eval_def_args(arg_forms: &[RispExp], env: &mut RispEnv) -> Result<RispExp, RispErr> {
   let first_form = arg_forms.first().ok_or(
     RispErr::Reason(
       "expected first form".to_string(),
@@ -211,7 +233,7 @@ fn eval_def(arg_forms: &[RispExp], env: &mut RispEnv) -> Result<RispExp, RispErr
   return Ok(first_form.clone());
 }
 
-fn eval_lambda(arg_forms: &[RispExp]) -> Result<RispExp, RispErr> {
+fn eval_lambda_args(arg_forms: &[RispExp]) -> Result<RispExp, RispErr> {
   let params_exp = arg_forms.first().ok_or(
     RispErr::Reason(
       "expected args form".to_string(),
@@ -225,7 +247,7 @@ fn eval_lambda(arg_forms: &[RispExp]) -> Result<RispExp, RispErr> {
   if arg_forms.len() > 2 {
     return Err(
       RispErr::Reason(
-        "fn deefinition can only have two forms ".to_string(),
+        "fn definition can only have two forms ".to_string(),
       )
     )
   }
@@ -239,22 +261,33 @@ fn eval_lambda(arg_forms: &[RispExp]) -> Result<RispExp, RispErr> {
   );
 }
 
-fn eval_built_in_symbol(sym: String, arg_forms: &[RispExp], env: &mut RispEnv) -> Result<RispExp, RispErr> {
-  match sym.as_ref() {
-    "if" => eval_if_args(arg_forms, env),
-    "def" => eval_def(arg_forms, env),
-    "fn" => eval_lambda(arg_forms),
-    _ => Err(RispErr::Reason(format!("unknown built-in symbol='{}'", sym))),
+fn eval_built_in_form(
+  exp: &RispExp, arg_forms: &[RispExp], env: &mut RispEnv
+) -> Option<Result<RispExp, RispErr>> {
+  match exp {
+    RispExp::Symbol(s) => 
+      match s.as_ref() {
+        "if" => Some(eval_if_args(arg_forms, env)),
+        "def" => Some(eval_def_args(arg_forms, env)),
+        "fn" => Some(eval_lambda_args(arg_forms)),
+        _ => None,
+      }
+    ,
+    _ => None,
   }
 }
 
-fn eval_forms(arg_forms: &[RispExp], env: &mut RispEnv) -> Result<Vec<RispExp>, RispErr> {
-  return arg_forms
-    .iter()
-    .map(|x| eval(x, env))
-    .collect::<Result<Vec<RispExp>, RispErr>>();
+fn env_get(k: &str, env: &RispEnv) -> Option<RispExp> {
+  return match env.data.get(k) {
+    Some(exp) => Some(exp.clone()),
+    None => {
+      return match &env.outer {
+        Some(outer_env) => env_get(k, &outer_env),
+        None => None
+      }
+    }
+  };
 }
-
 
 fn parse_list_of_symbol_strings(form: Rc<RispExp>) -> Result<Vec<String>, RispErr> {
   let list = match form.as_ref() {
@@ -277,6 +310,13 @@ fn parse_list_of_symbol_strings(form: Rc<RispExp>) -> Result<Vec<String>, RispEr
     ).collect::<Result<Vec<String>, RispErr>>();
 }
 
+fn eval_forms(arg_forms: &[RispExp], env: &mut RispEnv) -> Result<Vec<RispExp>, RispErr> {
+  return arg_forms
+    .iter()
+    .map(|x| eval(x, env))
+    .collect::<Result<Vec<RispExp>, RispErr>>();
+}
+
 fn env_for_lambda(
   params: Rc<RispExp>, 
   arg_forms: &[RispExp],
@@ -291,7 +331,6 @@ fn env_for_lambda(
     );
   }
   let vs = eval_forms(arg_forms, outer_env)?;
-  
   let mut data: HashMap<String, RispExp> = HashMap::new();
   for (k, v) in ks.iter().zip(vs.iter()) {
     data.insert(k.clone(), v.clone());
@@ -304,130 +343,71 @@ fn env_for_lambda(
   );
 }
 
-fn env_get(k: &str, env: &RispEnv) -> Option<RispExp> {
-  return match env.data.get(k) {
-    Some(exp) => Some(exp.clone()),
-    None => {
-      return match &env.outer {
-        Some(outer_env) => env_get(k, &outer_env),
-        None => None
-      }
-    }
-  };
-}
-
 fn eval(exp: &RispExp, env: &mut RispEnv) -> Result<RispExp, RispErr> {
   match exp {
     RispExp::Symbol(k) =>
       env_get(k, env)
-        .or(Some(exp.clone()))
-        .ok_or(
-          RispErr::Reason(
-            format!("unexpected symbol k='{}'", k)
-          )
+      .ok_or(
+        RispErr::Reason(
+          format!("unexpected symbol k='{}'", k)
         )
+      )
     ,
-    RispExp::Bool(_a) => Ok(exp.clone()),
     RispExp::Number(_a) => Ok(exp.clone()),
+    RispExp::Bool(_a) => Ok(exp.clone()),
     RispExp::List(list) => {
       let first_form = list
         .first()
         .ok_or(RispErr::Reason("expected a non-empty list".to_string()))?;
       let arg_forms = &list[1..];
-      let first_eval = eval(first_form, env)?;
-      return match first_eval {
-        RispExp::Symbol(sym) => eval_built_in_symbol(sym, arg_forms, env),
-        RispExp::Func(f) => {
-          return f(&eval_forms(arg_forms, env)?);
-        },
-        RispExp::Lambda(lambda) => {
-          let new_env = &mut env_for_lambda(lambda.params_exp, arg_forms, env)?;
-          return eval(&lambda.body_exp, new_env); 
-        },
-        _ => Err(
-          RispErr::Reason(
-            format!("first form must be a function, but got form='{}'", to_str(&first_eval))
-          )
-        ),
+      match eval_built_in_form(first_form, arg_forms, env) {
+        Some(res) => res,
+        None => {
+          let first_eval = eval(first_form, env)?;
+          match first_eval {
+            RispExp::Func(f) => {
+              return f(&eval_forms(arg_forms, env)?);
+            },
+            RispExp::Lambda(lambda) => {
+              let new_env = &mut env_for_lambda(lambda.params_exp, arg_forms, env)?;
+              return eval(&lambda.body_exp, new_env); 
+            },
+            _ => Err(
+              RispErr::Reason("first form must be a function".to_string())
+            ),
+          }
+        }
       }
     },
     RispExp::Func(_) => Err(
-      RispErr::Reason(
-        format!("unexpected form='{}'", to_str(exp))
-      )
+      RispErr::Reason("unexpected form".to_string())
     ),
     RispExp::Lambda(_) => Err(
-      RispErr::Reason(
-        format!("unexpected form='{}'", to_str(exp))
-      )
+      RispErr::Reason("unexpected form".to_string())
     ),
   }
-}
-
-/* 
-  Parse
-*/
-
-fn read_seq(tokens: &[String], start: usize) -> Result<(RispExp, usize), RispErr> {
-  let mut res: Vec<RispExp> = vec![];
-  let mut next = start;
-  loop {
-    let next_token = tokens
-      .get(next)
-      .ok_or(RispErr::Reason("could not find closing `)`".to_string()))
-      ?;
-    if next_token == ")" {
-      return Ok((RispExp::List(res), next + 1)) // skip `)`, head to the token after
-    }
-    let (exp, new_next) = parse(&tokens, next)?;
-    res.push(exp);
-    next = new_next;
-  }
-}
-
-fn parse_atom(token: &str) -> RispExp {
-  match token.as_ref() {
-    "true" => RispExp::Bool(true),
-    "false" => RispExp::Bool(false),
-    _ => {
-      let potential_float: Result<f64, ParseFloatError> = token.parse();
-      return match potential_float {
-        Ok(v) => RispExp::Number(v),
-        Err(_) => RispExp::Symbol(token.to_string().clone())
-      }
-    }
-  }
-}
-
-fn parse(tokens: &[String], pos: usize) -> Result<(RispExp, usize), RispErr> {
-  let token = tokens
-    .get(pos)
-    .ok_or(
-      RispErr::Reason(format!("could not get token for pos='{}'", pos))
-    )?;
-  let to_match = &token[..];
-  match to_match {
-    "(" => read_seq(tokens, pos + 1),
-    ")" => Err(RispErr::Reason("unexpected `)`".to_string())),
-    _ => Ok(
-      (parse_atom(token), pos + 1)
-    ),
-  }
-}
-
-fn tokenize(expr: String) -> Vec<String> {
-  return expr
-    .replace("(", " ( ")
-    .replace(")", " ) ")
-    .split(" ")
-    .map(|x| x.trim().to_string())
-    .filter(|x| !x.is_empty())
-    .collect();
 }
 
 /*
-  REPL
+  Repl
 */
+
+fn to_str(exp: &RispExp) -> String {
+  match exp {
+    RispExp::Bool(b) => b.to_string(),
+    RispExp::Symbol(s) => s.clone(),
+    RispExp::Number(n) => n.to_string(),
+    RispExp::List(list) => {
+      let xs: Vec<String> = list
+        .iter()
+        .map(|x| to_str(x))
+        .collect();
+      return format!("({})", xs.join(","));
+    },
+    RispExp::Func(_) => "Function {}".to_string(),
+    RispExp::Lambda(_) => "Lambda {}".to_string(),
+  }
+}
 
 fn parse_eval_print(expr: String, env: &mut RispEnv) -> Result<String, RispErr> {
   let (parsed_exp, _) = parse(&tokenize(expr), 0)?;
@@ -440,7 +420,6 @@ fn slurp_expr() -> String {
   
   io::stdin().read_line(&mut expr)
     .expect("Failed to read line");
-
   return expr;
 }
 
