@@ -17,6 +17,25 @@ enum RispExp {
   Lambda(RispLambda)
 }
 
+impl ToString for RispExp {
+  fn to_string(&self) -> String {
+    return match self {
+      RispExp::Bool(b) => b.to_string(),
+      RispExp::Symbol(s) => s.clone(),
+      RispExp::Number(n) => n.to_string(),
+      RispExp::List(list) => {
+        let xs: Vec<String> = list
+          .iter()
+          .map(|x| x.to_string())
+          .collect();
+        return format!("({})", xs.join(","));
+      },
+      RispExp::Func(_) => "Function {}".to_string(),
+      RispExp::Lambda(_) => "Lambda {}".to_string(),
+    }
+  }
+}
+
 #[derive(Clone)]
 struct RispLambda {
   params_exp: Rc<RispExp>,
@@ -42,9 +61,8 @@ fn tokenize(expr: String) -> Vec<String> {
   return expr
     .replace("(", " ( ")
     .replace(")", " ) ")
-    .split(" ")
-    .map(|x| x.trim().to_string())
-    .filter(|x| !x.is_empty())
+    .split_whitespace()
+    .map(|x| x.to_string())
     .collect();
 }
 
@@ -58,9 +76,7 @@ fn parse(tokens: &[String], pos: usize) -> Result<(RispExp, usize), RispErr> {
   match to_match {
     "(" => read_seq(tokens, pos + 1),
     ")" => Err(RispErr::Reason("unexpected `)`".to_string())),
-    _ => Ok(
-      (parse_atom(token), pos + 1)
-    ),
+    _ => Ok((parse_atom(token), pos + 1)),
   }
 }
 
@@ -87,7 +103,7 @@ fn parse_atom(token: &str) -> RispExp {
     "false" => RispExp::Bool(false),
     _ => {
       let potential_float: Result<f64, ParseFloatError> = token.parse();
-      return match potential_float {
+      match potential_float {
         Ok(v) => RispExp::Number(v),
         Err(_) => RispExp::Symbol(token.to_string().clone())
       }
@@ -199,7 +215,7 @@ fn eval_if_args(arg_forms: &[RispExp], env: &mut RispEnv) -> Result<RispExp, Ris
       return res_eval;
     },
     _ => Err(
-      RispErr::Reason(format!("unexpected test form='{}'", to_str(test_form)))
+      RispErr::Reason(format!("unexpected test form='{}'", test_form.to_string()))
     )
   }
 }
@@ -281,7 +297,7 @@ fn env_get(k: &str, env: &RispEnv) -> Option<RispExp> {
   return match env.data.get(k) {
     Some(exp) => Some(exp.clone()),
     None => {
-      return match &env.outer {
+      match &env.outer {
         Some(outer_env) => env_get(k, &outer_env),
         None => None
       }
@@ -392,27 +408,10 @@ fn eval(exp: &RispExp, env: &mut RispEnv) -> Result<RispExp, RispErr> {
   Repl
 */
 
-fn to_str(exp: &RispExp) -> String {
-  match exp {
-    RispExp::Bool(b) => b.to_string(),
-    RispExp::Symbol(s) => s.clone(),
-    RispExp::Number(n) => n.to_string(),
-    RispExp::List(list) => {
-      let xs: Vec<String> = list
-        .iter()
-        .map(|x| to_str(x))
-        .collect();
-      return format!("({})", xs.join(","));
-    },
-    RispExp::Func(_) => "Function {}".to_string(),
-    RispExp::Lambda(_) => "Lambda {}".to_string(),
-  }
-}
-
 fn parse_eval_print(expr: String, env: &mut RispEnv) -> Result<String, RispErr> {
   let (parsed_exp, _) = parse(&tokenize(expr), 0)?;
   let evaled_exp = eval(&parsed_exp, env)?;
-  return Ok(to_str(&evaled_exp));
+  return Ok(evaled_exp.to_string());
 }
 
 fn slurp_expr() -> String {
