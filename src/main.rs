@@ -48,9 +48,9 @@ enum RispErr {
 }
 
 #[derive(Clone)]
-struct RispEnv {
+struct RispEnv<'a> {
   data: HashMap<String, RispExp>,
-  outer: Option<Rc<RispEnv>>,
+  outer: Option<&'a RispEnv<'a>>,
 }
 
 /*
@@ -131,7 +131,7 @@ macro_rules! ensure_tonicity {
   }};
 }
 
-fn default_env() -> RispEnv {
+fn default_env<'a>() -> RispEnv<'a> {
   let mut data: HashMap<String, RispExp> = HashMap::new();
   data.insert(
     "+".to_string(), 
@@ -333,11 +333,11 @@ fn eval_forms(arg_forms: &[RispExp], env: &mut RispEnv) -> Result<Vec<RispExp>, 
     .collect::<Result<Vec<RispExp>, RispErr>>();
 }
 
-fn env_for_lambda(
+fn env_for_lambda<'a>(
   params: Rc<RispExp>, 
   arg_forms: &[RispExp],
-  outer_env: &mut RispEnv,
-) -> Result<RispEnv, RispErr> {
+  outer_env: &'a mut RispEnv,
+) -> Result<RispEnv<'a>, RispErr> {
   let ks = parse_list_of_symbol_strings(params)?;
   if ks.len() != arg_forms.len() {
     return Err(
@@ -354,7 +354,7 @@ fn env_for_lambda(
   return Ok(
     RispEnv {
       data: data,
-      outer: Some(Rc::new(outer_env.clone())),
+      outer: Some(outer_env),
     }
   );
 }
