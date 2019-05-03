@@ -14,13 +14,19 @@ enum RispExp {
   Number(f64),
   List(Vec<RispExp>),
   Func(fn(&[RispExp]) -> Result<RispExp, RispErr>),
-  Lambda(RispLambda)
+  Lambda(RispLambda),
+}
+
+#[derive(Clone)]
+struct RispLambda {
+  params_exp: Rc<RispExp>,
+  body_exp: Rc<RispExp>,
 }
 
 impl ToString for RispExp {
   fn to_string(&self) -> String {
-    return match self {
-      RispExp::Bool(b) => b.to_string(),
+    match self {
+      RispExp::Bool(a) => a.to_string(),
       RispExp::Symbol(s) => s.clone(),
       RispExp::Number(n) => n.to_string(),
       RispExp::List(list) => {
@@ -28,18 +34,12 @@ impl ToString for RispExp {
           .iter()
           .map(|x| x.to_string())
           .collect();
-        return format!("({})", xs.join(","));
+        format!("({})", xs.join(","))
       },
       RispExp::Func(_) => "Function {}".to_string(),
       RispExp::Lambda(_) => "Lambda {}".to_string(),
     }
   }
-}
-
-#[derive(Clone)]
-struct RispLambda {
-  params_exp: Rc<RispExp>,
-  body_exp: Rc<RispExp>,
 }
 
 #[derive(Debug)]
@@ -58,12 +58,12 @@ struct RispEnv<'a> {
 */
 
 fn tokenize(expr: String) -> Vec<String> {
-  return expr
+  expr
     .replace("(", " ( ")
     .replace(")", " ) ")
     .split_whitespace()
     .map(|x| x.to_string())
-    .collect();
+    .collect()
 }
 
 fn parse(tokens: &[String], pos: usize) -> Result<(RispExp, usize), RispErr> {
@@ -72,8 +72,7 @@ fn parse(tokens: &[String], pos: usize) -> Result<(RispExp, usize), RispErr> {
     .ok_or(
       RispErr::Reason(format!("could not get token for pos='{}'", pos))
     )?;
-  let to_match = &token[..];
-  match to_match {
+  match &token[..] {
     "(" => read_seq(tokens, pos + 1),
     ")" => Err(RispErr::Reason("unexpected `)`".to_string())),
     _ => Ok((parse_atom(token), pos + 1)),
@@ -114,6 +113,7 @@ fn parse_atom(token: &str) -> RispExp {
 /*
   Env
 */
+
 macro_rules! ensure_tonicity {
   ($check_fn:expr) => {{
     |args: &[RispExp]| -> Result<RispExp, RispErr> {
@@ -126,7 +126,7 @@ macro_rules! ensure_tonicity {
           None => true,
         }
       };
-      return Ok(RispExp::Bool(f(first, rest)));
+      Ok(RispExp::Bool(f(first, rest)))
     }
   }};
 }
@@ -138,7 +138,8 @@ fn default_env<'a>() -> RispEnv<'a> {
     RispExp::Func(
       |args: &[RispExp]| -> Result<RispExp, RispErr> {
         let sum = parse_list_of_floats(args)?.iter().fold(0.0, |sum, a| sum + a);
-        return Ok(RispExp::Number(sum));
+        
+        Ok(RispExp::Number(sum))
       }
     )
   );
@@ -149,8 +150,8 @@ fn default_env<'a>() -> RispEnv<'a> {
         let floats = parse_list_of_floats(args)?;
         let first = *floats.first().ok_or(RispErr::Reason("expected at least one number".to_string()))?;
         let sum_of_rest = floats[1..].iter().fold(0.0, |sum, a| sum + a);
-
-        return Ok(RispExp::Number(first - sum_of_rest));
+        
+        Ok(RispExp::Number(first - sum_of_rest))
       }
     )
   );
@@ -175,14 +176,14 @@ fn default_env<'a>() -> RispEnv<'a> {
     RispExp::Func(ensure_tonicity!(|a, b| a <= b))
   );
   
-  return RispEnv {data: data, outer: None}
+  RispEnv {data, outer: None}
 }
 
 fn parse_list_of_floats(args: &[RispExp]) -> Result<Vec<f64>, RispErr> {
-  return args
+  args
     .iter()
     .map(|x| parse_single_float(x))
-    .collect::<Result<Vec<f64>, RispErr>>();
+    .collect()
 }
 
 fn parse_single_float(exp: &RispExp) -> Result<f64, RispErr> {
@@ -212,7 +213,7 @@ fn eval_if_args(arg_forms: &[RispExp], env: &mut RispEnv) -> Result<RispExp, Ris
         ))?;
       let res_eval = eval(res_form, env);
       
-      return res_eval;
+      res_eval
     },
     _ => Err(
       RispErr::Reason(format!("unexpected test form='{}'", test_form.to_string()))
@@ -246,8 +247,10 @@ fn eval_def_args(arg_forms: &[RispExp], env: &mut RispEnv) -> Result<RispExp, Ri
   } 
   let second_eval = eval(second_form, env)?;
   env.data.insert(first_str, second_eval);
-  return Ok(first_form.clone());
+  
+  Ok(first_form.clone())
 }
+
 
 fn eval_lambda_args(arg_forms: &[RispExp]) -> Result<RispExp, RispErr> {
   let params_exp = arg_forms.first().ok_or(
@@ -267,15 +270,17 @@ fn eval_lambda_args(arg_forms: &[RispExp]) -> Result<RispExp, RispErr> {
       )
     )
   }
-  return Ok(
+  
+  Ok(
     RispExp::Lambda(
       RispLambda {
         body_exp: Rc::new(body_exp.clone()),
         params_exp: Rc::new(params_exp.clone()),
       }
     )
-  );
+  )
 }
+
 
 fn eval_built_in_form(
   exp: &RispExp, arg_forms: &[RispExp], env: &mut RispEnv
@@ -294,7 +299,7 @@ fn eval_built_in_form(
 }
 
 fn env_get(k: &str, env: &RispEnv) -> Option<RispExp> {
-  return match env.data.get(k) {
+  match env.data.get(k) {
     Some(exp) => Some(exp.clone()),
     None => {
       match &env.outer {
@@ -302,7 +307,7 @@ fn env_get(k: &str, env: &RispEnv) -> Option<RispExp> {
         None => None
       }
     }
-  };
+  }
 }
 
 fn parse_list_of_symbol_strings(form: Rc<RispExp>) -> Result<Vec<String>, RispErr> {
@@ -312,25 +317,18 @@ fn parse_list_of_symbol_strings(form: Rc<RispExp>) -> Result<Vec<String>, RispEr
       "expected args form to be a list".to_string(),
     ))
   }?;
-  return list
+  list
     .iter()
     .map(
       |x| {
-        return match x {
+        match x {
           RispExp::Symbol(s) => Ok(s.clone()),
           _ => Err(RispErr::Reason(
             "expected symbols in the argument list".to_string(),
           ))
         }   
       }
-    ).collect::<Result<Vec<String>, RispErr>>();
-}
-
-fn eval_forms(arg_forms: &[RispExp], env: &mut RispEnv) -> Result<Vec<RispExp>, RispErr> {
-  return arg_forms
-    .iter()
-    .map(|x| eval(x, env))
-    .collect::<Result<Vec<RispExp>, RispErr>>();
+    ).collect()
 }
 
 fn env_for_lambda<'a>(
@@ -351,12 +349,19 @@ fn env_for_lambda<'a>(
   for (k, v) in ks.iter().zip(vs.iter()) {
     data.insert(k.clone(), v.clone());
   }
-  return Ok(
+  Ok(
     RispEnv {
-      data: data,
+      data,
       outer: Some(outer_env),
     }
-  );
+  )
+}
+
+fn eval_forms(arg_forms: &[RispExp], env: &mut RispEnv) -> Result<Vec<RispExp>, RispErr> {
+  arg_forms
+    .iter()
+    .map(|x| eval(x, env))
+    .collect()
 }
 
 fn eval(exp: &RispExp, env: &mut RispEnv) -> Result<RispExp, RispErr> {
@@ -369,8 +374,9 @@ fn eval(exp: &RispExp, env: &mut RispEnv) -> Result<RispExp, RispErr> {
         )
       )
     ,
-    RispExp::Number(_a) => Ok(exp.clone()),
     RispExp::Bool(_a) => Ok(exp.clone()),
+    RispExp::Number(_a) => Ok(exp.clone()),
+
     RispExp::List(list) => {
       let first_form = list
         .first()
@@ -382,11 +388,11 @@ fn eval(exp: &RispExp, env: &mut RispEnv) -> Result<RispExp, RispErr> {
           let first_eval = eval(first_form, env)?;
           match first_eval {
             RispExp::Func(f) => {
-              return f(&eval_forms(arg_forms, env)?);
+              f(&eval_forms(arg_forms, env)?)
             },
             RispExp::Lambda(lambda) => {
               let new_env = &mut env_for_lambda(lambda.params_exp, arg_forms, env)?;
-              return eval(&lambda.body_exp, new_env); 
+              eval(&lambda.body_exp, new_env)
             },
             _ => Err(
               RispErr::Reason("first form must be a function".to_string())
@@ -395,12 +401,8 @@ fn eval(exp: &RispExp, env: &mut RispEnv) -> Result<RispExp, RispErr> {
         }
       }
     },
-    RispExp::Func(_) => Err(
-      RispErr::Reason("unexpected form".to_string())
-    ),
-    RispExp::Lambda(_) => Err(
-      RispErr::Reason("unexpected form".to_string())
-    ),
+    RispExp::Func(_) => Err(RispErr::Reason("unexpected form".to_string())),
+    RispExp::Lambda(_) => Err(RispErr::Reason("unexpected form".to_string())),
   }
 }
 
@@ -411,7 +413,8 @@ fn eval(exp: &RispExp, env: &mut RispEnv) -> Result<RispExp, RispErr> {
 fn parse_eval_print(expr: String, env: &mut RispEnv) -> Result<String, RispErr> {
   let (parsed_exp, _) = parse(&tokenize(expr), 0)?;
   let evaled_exp = eval(&parsed_exp, env)?;
-  return Ok(evaled_exp.to_string());
+
+  Ok(evaled_exp.to_string())
 }
 
 fn slurp_expr() -> String {
@@ -419,7 +422,8 @@ fn slurp_expr() -> String {
   
   io::stdin().read_line(&mut expr)
     .expect("Failed to read line");
-  return expr;
+  
+  expr
 }
 
 fn main() {
