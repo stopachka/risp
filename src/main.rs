@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt;
 use std::io;
 use std::num::ParseFloatError;
 use std::rc::Rc;
@@ -23,9 +24,9 @@ struct RispLambda {
   body_exp: Rc<RispExp>,
 }
 
-impl ToString for RispExp {
-  fn to_string(&self) -> String {
-    match self {
+impl fmt::Display for RispExp {
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    let str = match self {
       RispExp::Bool(a) => a.to_string(),
       RispExp::Symbol(s) => s.clone(),
       RispExp::Number(n) => n.to_string(),
@@ -38,9 +39,12 @@ impl ToString for RispExp {
       },
       RispExp::Func(_) => "Function {}".to_string(),
       RispExp::Lambda(_) => "Lambda {}".to_string(),
-    }
+    };
+    
+    write!(f, "{}", str)
   }
 }
+
 
 #[derive(Debug)]
 enum RispErr {
@@ -66,33 +70,32 @@ fn tokenize(expr: String) -> Vec<String> {
     .collect()
 }
 
-fn parse(tokens: &[String], pos: usize) -> Result<(RispExp, usize), RispErr> {
-  let token = tokens
-    .get(pos)
+fn parse<'a>(tokens: &'a [String]) -> Result<(RispExp, &'a [String]), RispErr> {
+  let (token, rest) = tokens.split_first()
     .ok_or(
-      RispErr::Reason(format!("could not get token for pos='{}'", pos))
+      RispErr::Reason("could not get token".to_string())
     )?;
   match &token[..] {
-    "(" => read_seq(tokens, pos + 1),
+    "(" => read_seq(rest),
     ")" => Err(RispErr::Reason("unexpected `)`".to_string())),
-    _ => Ok((parse_atom(token), pos + 1)),
+    _ => Ok((parse_atom(token), rest)),
   }
 }
 
-fn read_seq(tokens: &[String], start: usize) -> Result<(RispExp, usize), RispErr> {
+fn read_seq<'a>(tokens: &'a [String]) -> Result<(RispExp, &'a [String]), RispErr> {
   let mut res: Vec<RispExp> = vec![];
-  let mut next = start;
+  let mut xs = tokens;
   loop {
-    let next_token = tokens
-      .get(next)
+    let (next_token, rest) = xs
+      .split_first()
       .ok_or(RispErr::Reason("could not find closing `)`".to_string()))
       ?;
     if next_token == ")" {
-      return Ok((RispExp::List(res), next + 1)) // skip `)`, head to the token after
+      return Ok((RispExp::List(res), rest)) // skip `)`, head to the token after
     }
-    let (exp, new_next) = parse(&tokens, next)?;
+    let (exp, new_xs) = parse(&xs)?;
     res.push(exp);
-    next = new_next;
+    xs = new_xs;
   }
 }
 
@@ -358,10 +361,7 @@ fn env_for_lambda<'a>(
 }
 
 fn eval_forms(arg_forms: &[RispExp], env: &mut RispEnv) -> Result<Vec<RispExp>, RispErr> {
-  arg_forms
-    .iter()
-    .map(|x| eval(x, env))
-    .collect()
+  arg_forms.iter().map(|x| eval(x, env)).collect()
 }
 
 fn eval(exp: &RispExp, env: &mut RispEnv) -> Result<RispExp, RispErr> {
@@ -410,11 +410,11 @@ fn eval(exp: &RispExp, env: &mut RispEnv) -> Result<RispExp, RispErr> {
   Repl
 */
 
-fn parse_eval_print(expr: String, env: &mut RispEnv) -> Result<String, RispErr> {
-  let (parsed_exp, _) = parse(&tokenize(expr), 0)?;
+fn parse_eval(expr: String, env: &mut RispEnv) -> Result<RispExp, RispErr> {
+  let (parsed_exp, _) = parse(&tokenize(expr))?;
   let evaled_exp = eval(&parsed_exp, env)?;
 
-  Ok(evaled_exp.to_string())
+  Ok(evaled_exp)
 }
 
 fn slurp_expr() -> String {
@@ -430,8 +430,8 @@ fn main() {
   let env = &mut default_env();
   loop {
     println!("risp >");
-    let expr = slurp_expr();;
-    match parse_eval_print(expr, env) {
+    let expr = slurp_expr();
+    match parse_eval(expr, env) {
       Ok(res) => println!("// 🔥 => {}", res),
       Err(e) => match e {
         RispErr::Reason(msg) => println!("// 🙀 => {}", msg),
