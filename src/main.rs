@@ -361,7 +361,10 @@ fn env_for_lambda<'a>(
 }
 
 fn eval_forms(arg_forms: &[RispExp], env: &mut RispEnv) -> Result<Vec<RispExp>, RispErr> {
-  arg_forms.iter().map(|x| eval(x, env)).collect()
+  arg_forms
+    .iter()
+    .map(|x| eval(x, env))
+    .collect()
 }
 
 fn eval(exp: &RispExp, env: &mut RispEnv) -> Result<RispExp, RispErr> {
