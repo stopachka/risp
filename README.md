@@ -1,8 +1,3 @@
 # Risp 
 
-Try it out! 
-
-```bash
-./target/release/risp 
-
-```
+The code behind [this essay](https://m.stopa.io/risp-lisp-in-rust-90a0dad5b116)
