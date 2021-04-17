@@ -1,7 +1,10 @@
 [package]
 name = "risp"
+description = "A small lisp written in Rust"
 version = "0.1.0"
-authors = ["stopachka <stepan.p@gmail.com>"]
-edition = "2018"
+authors = ["stopachka <stepan.p@gmail.com>",
+           "Deepu Mohan Puthrote <git@deepumohan.com>"]
+edition = "2021"
 
 [dependencies]
+linereader = "0.4.0"
